@@ -1,0 +1,18 @@
+.anchor
+.DS_Store
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+.surfpool
+
+# Keypairs — NEVER commit. Includes the program upgrade-authority keypair at
+# target/deploy/soteropolis_token-keypair.json (already covered by `target`,
+# repeated here so it survives any future change to that rule).
+*-keypair.json
+**/*-keypair.json
+keys/
+*.key
+.env
+.env.local

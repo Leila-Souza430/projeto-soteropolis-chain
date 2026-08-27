@@ -1,0 +1,21 @@
+# Secrets — NEVER commit
+.env
+.env.local
+keys/
+*-keypair.json
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime artifacts
+*.log
+*.pid.txt
+
+# Test artifacts
+report.html
+.pytest_cache/

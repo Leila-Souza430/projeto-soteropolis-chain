@@ -1,0 +1,129 @@
+name: soteropolis_app
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.1
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+
+  # Invisible wallet: Supabase Auth (OTP) drives login; Web3Auth turns the
+  # resulting session JWT into an ed25519 Solana keypair, never surfaced to
+  # the citizen. See lib/services/auth_service.dart.
+  web3auth_flutter: ^7.0.0
+  supabase_flutter: ^2.17.2
+  # Narrow use: only Ed25519HDKeyPair.fromPrivateKeyBytes for local address
+  # derivation in auth_service.dart. No RPC calls, no transaction building -
+  # all chain signing (mint/burn) happens backend-side.
+  solana: ^0.32.0+1
+
+  # Antifraude descarte capture: live preview only, no gallery picker.
+  camera: ^0.12.0+2
+  # GPS fix at camera shutter instant + geofencing distance feedback.
+  geolocator: ^14.0.3
+
+  # Persists idempotency keys (see lib/services/idempotency_store.dart) and
+  # the Supabase session cache used by supabase_flutter itself.
+  shared_preferences: ^2.5.5
+
+  # FastAPI client: interceptor-based bearer auth + centralized error mapping.
+  dio: ^5.11.0
+
+  # Client-side idempotency keys for POST /descartes and POST /resgates.
+  uuid: ^4.6.0
+
+  # pt-BR date formatting in carteira_screen.dart. Already resolved
+  # transitively (via supabase_flutter's chain) at 0.20.3; pinned directly
+  # here since the app imports it itself rather than relying on that.
+  intl: ^0.20.3
+
+  # Diagnostic deep-link visibility in main.dart (magic-link login
+  # troubleshooting). Already resolved transitively (via supabase_flutter's
+  # chain) at 7.2.1; pinned directly here since the app imports it itself
+  # rather than relying on that. AppLinks() is a singleton with a
+  # broadcast uriLinkStream, so this is purely additive alongside
+  # supabase_flutter's own internal listener on the same stream.
+  app_links: ^7.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^6.0.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  # assets:
+  #   - images/a_dot_burr.jpeg
+  #   - images/a_dot_ham.jpeg
+
+  # An image asset can refer to one or more resolution-specific "variants", see
+  # https://flutter.dev/to/resolution-aware-images
+
+  # For details regarding adding assets from package dependencies, see
+  # https://flutter.dev/to/asset-from-package
+
+  # To add custom fonts to your application, add a fonts section here,
+  # in this "flutter" section. Each entry in this list should have a
+  # "family" key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors for the font. For
+  # example:
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
+  #   - family: Trajan Pro
+  #     fonts:
+  #       - asset: fonts/TrajanPro.ttf
+  #       - asset: fonts/TrajanPro_Bold.ttf
+  #         weight: 700
+  #
+  # For details regarding fonts from package dependencies,
+  # see https://flutter.dev/to/font-from-package

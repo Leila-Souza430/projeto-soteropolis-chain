@@ -1,0 +1,49 @@
+
+# External Claude skill submodules (re-fetched via: git submodule update --init)
+.claude/skills/ext/
+
+# >>> solana-ai-kit config — gitignored by default; run /commit-claude-config to version it >>>
+.gitmodules
+.claude/
+CLAUDE.md
+.mcp.json
+# <<< solana-ai-kit config <<<
+
+# solana-ai-kit local-only (never committed)
+CLAUDE.local.md
+.claude/context/
+.env
+.env.local
+
+# Segredos — defesa em profundidade (redundante aos .gitignore locais de cada workspace)
+*-keypair.json
+**/*-keypair.json
+**/keys/
+*.key
+soteropolis-app/dart_define.local.json
+
+# soteropolis-onchain — contém a upgrade-authority keypair do programa
+soteropolis-onchain/target/
+soteropolis-onchain/.anchor/
+
+# Build artifacts
+**/__pycache__/
+**/.pytest_cache/
+**/node_modules/
+**/build/
+**/.dart_tool/
+
+# Logs, PIDs e artefatos de runtime/ferramentas
+*.log
+*.pid.txt
+uvicorn.pid.txt
+.playwright-mcp/
+
+# Arquivos internos do Claude Code (não fazem parte do projeto)
+.agents/
+skills-lock.json
+
+# Lixo/artefatos que não devem ir pro repositório
+nul
+CLAUDE.md.bak
+flutter-custom-auth-fresh.yml

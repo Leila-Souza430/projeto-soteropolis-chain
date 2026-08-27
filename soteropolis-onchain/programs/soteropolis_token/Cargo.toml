@@ -1,0 +1,34 @@
+[package]
+name = "soteropolis_token"
+version = "0.1.0"
+description = "Green Token (GT) — SPL Token-2022 mint/burn for the Soteropolis Chain recycling-rewards platform"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "soteropolis_token"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+
+[dependencies]
+# `init-if-needed` is required by the citizen ATA in `mint_tokens`; see the
+# constraint comment there for why that narrow use is safe.
+# Pinned with `=` to the 1.0.x line so the library matches anchor-cli 1.0.3.
+# A bare "1.0.3" caret-resolves to 1.1.x, which drifts away from the CLI and
+# risks IDL mismatches.
+anchor-lang = { version = "=1.0.3", features = ["init-if-needed"] }
+anchor-spl = { version = "=1.0.3", features = ["token_2022", "token_2022_extensions"] }
+
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
