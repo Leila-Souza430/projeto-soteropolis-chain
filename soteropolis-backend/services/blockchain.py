@@ -6,9 +6,11 @@ implementation behind the same BlockchainService interface, so routers
 never need to change now that on-chain minting/burning has landed.
 """
 
+import base64
 import hashlib
 import json
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from solana.rpc.api import Client
@@ -17,6 +19,7 @@ from solana.rpc.types import TxOpts
 from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
+from solders.signature import Signature
 from solders.system_program import ID as SYSTEM_PROGRAM_ID
 from solders.transaction import Transaction
 
@@ -53,6 +56,14 @@ class BlockchainService(ABC):
         """Debit `quantidade` tokens from `wallet_address`. Returns the tx_hash."""
         ...
 
+    def prepare_burn_transaction(
+        self, wallet_address: str, quantidade: float, idempotency_key: str
+    ) -> PreparedTransaction:
+        raise NotImplementedError("This blockchain service cannot prepare recoverable burns")
+
+    def submit_prepared_transaction(self, prepared: PreparedTransaction) -> str:
+        raise NotImplementedError("This blockchain service cannot submit prepared transactions")
+
 
 class BlockchainError(Exception):
     """
@@ -64,6 +75,25 @@ class BlockchainError(Exception):
     blockchain call failure would have had before Phase 3, since
     MockBlockchainService could never fail.
     """
+
+
+class BlockchainOutcomeUnknown(BlockchainError):
+    """The RPC did not establish whether a signed transaction was committed."""
+
+
+class BlockchainNeedsReconciliation(BlockchainOutcomeUnknown):
+    """The transaction expired without enough RPC history to prove its outcome."""
+
+
+class BlockchainTransactionFailed(BlockchainError):
+    """The chain definitively rejected or failed the signed transaction."""
+
+
+@dataclass(frozen=True)
+class PreparedTransaction:
+    signature: str
+    serialized_transaction: str
+    last_valid_block_height: int
 
 
 class MockBlockchainService(BlockchainService):
@@ -88,6 +118,16 @@ class MockBlockchainService(BlockchainService):
 
     def burn_tokens(self, wallet_address: str, quantidade: float, idempotency_key: str) -> str:
         return hashlib.sha256(f"mock:burn:{idempotency_key}".encode()).hexdigest()
+
+    def prepare_burn_transaction(
+        self, wallet_address: str, quantidade: float, idempotency_key: str
+    ) -> PreparedTransaction:
+        signature = hashlib.sha256(f"mock:burn:{idempotency_key}".encode()).hexdigest()
+        serialized = base64.b64encode(f"mock:{signature}".encode()).decode("ascii")
+        return PreparedTransaction(signature, serialized, 0)
+
+    def submit_prepared_transaction(self, prepared: PreparedTransaction) -> str:
+        return prepared.signature
 
 
 def _quantidade_to_base_units(quantidade: float, decimals: int) -> int:
@@ -228,6 +268,17 @@ class SolanaBlockchainService(BlockchainService):
             include_ata_creation_accounts=False,
         )
 
+    def prepare_burn_transaction(
+        self, wallet_address: str, quantidade: float, idempotency_key: str
+    ) -> PreparedTransaction:
+        instruction = self._build_instruction(
+            discriminator=_BURN_TOKENS_DISCRIMINATOR,
+            wallet_address=wallet_address,
+            quantidade=quantidade,
+            include_ata_creation_accounts=False,
+        )
+        return self._prepare_instruction(instruction)
+
     def _send_instruction(
         self,
         *,
@@ -236,6 +287,22 @@ class SolanaBlockchainService(BlockchainService):
         quantidade: float,
         include_ata_creation_accounts: bool,
     ) -> str:
+        instruction = self._build_instruction(
+            discriminator=discriminator,
+            wallet_address=wallet_address,
+            quantidade=quantidade,
+            include_ata_creation_accounts=include_ata_creation_accounts,
+        )
+        return self.submit_prepared_transaction(self._prepare_instruction(instruction))
+
+    def _build_instruction(
+        self,
+        *,
+        discriminator: bytes,
+        wallet_address: str,
+        quantidade: float,
+        include_ata_creation_accounts: bool,
+    ) -> Instruction:
         # Shared by mint_tokens and burn_tokens (both funnel through this
         # method) - validated before anything else below (amount
         # conversion, ATA derivation, RPC calls).
@@ -261,7 +328,9 @@ class SolanaBlockchainService(BlockchainService):
             accounts.append(AccountMeta(SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False))
 
         instruction = Instruction(self._program_id, discriminator + amount.to_bytes(8, "little"), accounts)
+        return instruction
 
+    def _prepare_instruction(self, instruction: Instruction) -> PreparedTransaction:
         try:
             blockhash_resp = self._client.get_latest_blockhash(commitment=self._commitment)
             txn = Transaction.new_signed_with_payer(
@@ -270,27 +339,126 @@ class SolanaBlockchainService(BlockchainService):
                 [self._authority],
                 blockhash_resp.value.blockhash,
             )
+        except RPCException as exc:
+            raise BlockchainError(self._describe_rpc_exception(exc)) from exc
+        return PreparedTransaction(
+            signature=str(txn.signatures[0]),
+            serialized_transaction=base64.b64encode(bytes(txn)).decode("ascii"),
+            last_valid_block_height=blockhash_resp.value.last_valid_block_height,
+        )
 
-            send_resp = self._client.send_transaction(
-                txn,
-                TxOpts(skip_preflight=False, skip_confirmation=True, preflight_commitment=self._commitment),
+    def submit_prepared_transaction(self, prepared: PreparedTransaction) -> str:
+        try:
+            signature = Signature.from_string(prepared.signature)
+            serialized = base64.b64decode(prepared.serialized_transaction, validate=True)
+            transaction = Transaction.from_bytes(serialized)
+        except (ValueError, TypeError) as exc:
+            raise BlockchainError("Prepared Solana transaction is malformed") from exc
+
+        if not transaction.signatures or str(transaction.signatures[0]) != str(signature):
+            raise BlockchainError("Prepared transaction signature does not match its wire data")
+
+        try:
+            status_resp = self._client.get_signature_statuses(
+                [signature], search_transaction_history=True
             )
-            signature = send_resp.value
+            chain_status = status_resp.value[0] if status_resp.value else None
+            if chain_status is not None:
+                return self._confirm_existing(signature, chain_status)
 
+            current_height = self._client.get_block_height(commitment=self._commitment).value
+            if current_height > prepared.last_valid_block_height:
+                status_resp = self._client.get_signature_statuses(
+                    [signature], search_transaction_history=True
+                )
+                chain_status = status_resp.value[0] if status_resp.value else None
+                if chain_status is None:
+                    raise BlockchainNeedsReconciliation(
+                        "The transaction blockhash expired and its outcome could not be verified"
+                    )
+                return self._confirm_existing(signature, chain_status)
+
+            send_resp = self._client.send_raw_transaction(
+                serialized,
+                TxOpts(
+                    skip_preflight=False,
+                    skip_confirmation=True,
+                    preflight_commitment=self._commitment,
+                ),
+            )
+            if str(send_resp.value) != str(signature):
+                raise BlockchainOutcomeUnknown(
+                    "RPC returned a different signature for the persisted transaction"
+                )
             status_resp = self._client.confirm_transaction(
                 signature,
                 commitment=self._commitment,
-                last_valid_block_height=blockhash_resp.value.last_valid_block_height,
             )
         except RPCException as exc:
-            raise BlockchainError(self._describe_rpc_exception(exc)) from exc
+            payload = exc.args[0] if exc.args else None
+            data = getattr(payload, "data", None)
+            tx_error = getattr(data, "err", None)
+            if tx_error is not None:
+                raise BlockchainTransactionFailed(
+                    _describe_chain_error(tx_error, getattr(data, "logs", None))
+                ) from exc
+            raise BlockchainOutcomeUnknown(
+                f"Could not determine prepared transaction outcome: {self._describe_rpc_exception(exc)}"
+            ) from exc
         except (UnconfirmedTxError, TransactionExpiredBlockheightExceededError) as exc:
-            raise BlockchainError(f"Could not confirm transaction outcome: {exc}") from exc
+            raise BlockchainOutcomeUnknown(
+                f"Could not confirm prepared transaction outcome: {exc}"
+            ) from exc
 
-        status = status_resp.value[0] if status_resp.value else None
-        if status is not None and status.err is not None:
-            raise BlockchainError(_describe_chain_error(status.err))
+        chain_status = status_resp.value[0] if status_resp.value else None
+        if chain_status is None:
+            raise BlockchainOutcomeUnknown(
+                "RPC returned no transaction status after confirmation"
+            )
+        return self._confirm_existing(signature, chain_status)
 
+    def _confirm_existing(self, signature: Signature, chain_status) -> str:
+        if chain_status.err is not None:
+            raise BlockchainTransactionFailed(_describe_chain_error(chain_status.err))
+
+        confirmation_status = chain_status.confirmation_status
+        required_rank = {"processed": 0, "confirmed": 1, "finalized": 2}.get(
+            self._commitment
+        )
+        if required_rank is None:
+            raise BlockchainError(f"Unsupported Solana commitment: {self._commitment!r}")
+
+        if confirmation_status is not None and int(confirmation_status) >= required_rank:
+            return str(signature)
+
+        try:
+            response = self._client.confirm_transaction(
+                signature,
+                commitment=self._commitment,
+            )
+        except RPCException as exc:
+            raise BlockchainOutcomeUnknown(
+                f"Could not confirm transaction outcome: {self._describe_rpc_exception(exc)}"
+            ) from exc
+        except (UnconfirmedTxError, TransactionExpiredBlockheightExceededError) as exc:
+            raise BlockchainOutcomeUnknown(
+                f"Could not confirm transaction outcome: {exc}"
+            ) from exc
+
+        confirmed_status = response.value[0] if response.value else None
+        if confirmed_status is None:
+            raise BlockchainOutcomeUnknown(
+                "RPC returned no transaction status after confirmation"
+            )
+        if confirmed_status.err is not None:
+            raise BlockchainTransactionFailed(_describe_chain_error(confirmed_status.err))
+        if (
+            confirmed_status.confirmation_status is None
+            or int(confirmed_status.confirmation_status) < required_rank
+        ):
+            raise BlockchainOutcomeUnknown(
+                "Transaction has not reached the configured commitment"
+            )
         return str(signature)
 
     @staticmethod

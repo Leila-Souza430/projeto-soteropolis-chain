@@ -37,11 +37,11 @@ class EcopontoPublic(BaseModel):
 
 class DescarteCreate(BaseModel):
     ecoponto_id: UUID
-    latitude: float
-    longitude: float
-    tipo_residuo: str
-    peso_estimado: float | None = None
-    foto_url: str
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    tipo_residuo: str = Field(min_length=1)
+    peso_estimado: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    foto_url: str = Field(min_length=1)
 
 
 class DescarteResponse(BaseModel):
@@ -54,7 +54,7 @@ class DescarteResponse(BaseModel):
 
 
 class ResgateCreate(BaseModel):
-    quantidade: float
+    quantidade: float = Field(allow_inf_nan=False)
     # Exactly 10 digits. This is an arbitrary mock format for the simulated
     # Coelba integration (Fase 5) - SPEC.md does not document a real one.
     instalacao_coelba: str = Field(pattern=r"^\d{10}$")

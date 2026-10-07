@@ -12,7 +12,24 @@ from supabase import Client
 from database import get_supabase
 from dependencies import get_current_user_id
 from models.schemas import ResgateCreate, ResgateResponse
-from services.blockchain import BlockchainService, get_blockchain_service
+from services.blockchain import (
+    BlockchainNeedsReconciliation,
+    BlockchainOutcomeUnknown,
+    BlockchainService,
+    PreparedTransaction,
+    BlockchainTransactionFailed,
+    get_blockchain_service,
+)
+from services.idempotency import (
+    complete,
+    get_existing,
+    mark_failed,
+    mark_needs_reconciliation,
+    request_hash,
+    reserve,
+    save_prepared,
+    validate_transaction_replay,
+)
 
 router = APIRouter()
 
@@ -43,6 +60,94 @@ def _get_saldo_atual(supabase: Client, user_id: str) -> float:
     return saldo
 
 
+def _submit_and_record_burn(
+    *,
+    supabase: Client,
+    blockchain: BlockchainService,
+    prepared: PreparedTransaction,
+    idempotency_key: str,
+    user_id: str,
+    payload: ResgateCreate,
+) -> ResgateResponse:
+    try:
+        tx_hash = blockchain.submit_prepared_transaction(prepared)
+    except BlockchainTransactionFailed as exc:
+        mark_failed(supabase, key=idempotency_key, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The Solana transaction failed; no successful burn was recorded",
+        ) from exc
+    except BlockchainNeedsReconciliation as exc:
+        mark_needs_reconciliation(supabase, key=idempotency_key, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Burn requires reconciliation; do not submit a new transaction",
+        ) from exc
+    except BlockchainOutcomeUnknown as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Burn outcome is still unknown; retry with the same Idempotency-Key",
+            headers={"Retry-After": "2"},
+        ) from exc
+
+    try:
+        transacao_result = (
+            supabase.table("transacoes_tokens")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "tipo": "BURN",
+                    "quantidade": payload.quantidade,
+                    "tx_hash": tx_hash,
+                    "idempotency_key": idempotency_key,
+                }
+            )
+            .execute()
+        )
+        transacao = transacao_result.data[0]
+    except APIError as exc:
+        if exc.code != _UNIQUE_VIOLATION:
+            raise
+        existing = (
+            supabase.table("transacoes_tokens")
+            .select("*")
+            .eq("idempotency_key", idempotency_key)
+            .execute()
+        )
+        if not existing.data:
+            raise
+        transacao = existing.data[0]
+        validate_transaction_replay(
+            transacao,
+            user_id=user_id,
+            operation="BURN",
+            quantity=payload.quantidade,
+        )
+        if transacao["tx_hash"] != tx_hash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Idempotency-Key is already associated with a different transaction",
+            ) from exc
+
+    complete(
+        supabase,
+        key=idempotency_key,
+        tx_hash=transacao["tx_hash"],
+        resource_id=transacao["id"],
+        quantity=transacao["quantidade"],
+        installation=payload.instalacao_coelba,
+    )
+
+    return ResgateResponse(
+        id=transacao["id"],
+        status="Confirmado",
+        tx_hash=transacao["tx_hash"],
+        quantidade=transacao["quantidade"],
+        instalacao_coelba=payload.instalacao_coelba,
+        created_at=transacao["created_at"],
+    )
+
+
 @router.post("", response_model=ResgateResponse, status_code=status.HTTP_201_CREATED)
 def create_resgate(
     payload: ResgateCreate,
@@ -56,15 +161,124 @@ def create_resgate(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Idempotency-Key header is required"
         )
 
+    payload_hash = request_hash(payload.model_dump(mode="json"))
+    reservation = get_existing(
+        supabase,
+        key=idempotency_key,
+        user_id=user_id,
+        operation="BURN",
+        payload_hash=payload_hash,
+        allow_pending=True,
+    )
+    if reservation is not None:
+        if reservation.status in ("pending", "prepared"):
+            existing = (
+                supabase.table("transacoes_tokens")
+                .select("*")
+                .eq("idempotency_key", idempotency_key)
+                .execute()
+            )
+            if existing.data:
+                transacao = existing.data[0]
+                validate_transaction_replay(
+                    transacao,
+                    user_id=user_id,
+                    operation="BURN",
+                    quantity=payload.quantidade,
+                )
+                if (
+                    reservation.status == "prepared"
+                    and transacao["tx_hash"] != reservation.tx_hash
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Recorded burn signature does not match the prepared transaction",
+                    )
+                complete(
+                    supabase,
+                    key=idempotency_key,
+                    tx_hash=transacao["tx_hash"],
+                    resource_id=transacao["id"],
+                    quantity=transacao["quantidade"],
+                    installation=payload.instalacao_coelba,
+                )
+                return ResgateResponse(
+                    id=transacao["id"],
+                    status="Confirmado",
+                    tx_hash=transacao["tx_hash"],
+                    quantidade=transacao["quantidade"],
+                    instalacao_coelba=payload.instalacao_coelba,
+                    created_at=transacao["created_at"],
+                )
+            if reservation.status == "prepared":
+                if (
+                    reservation.tx_hash is None
+                    or reservation.signed_transaction is None
+                    or reservation.last_valid_block_height is None
+                ):
+                    raise RuntimeError(
+                        "Prepared burn reservation is missing signed transaction data"
+                    )
+                prepared = PreparedTransaction(
+                    signature=reservation.tx_hash,
+                    serialized_transaction=reservation.signed_transaction,
+                    last_valid_block_height=reservation.last_valid_block_height,
+                )
+                return _submit_and_record_burn(
+                    supabase=supabase,
+                    blockchain=blockchain,
+                    prepared=prepared,
+                    idempotency_key=idempotency_key,
+                    user_id=user_id,
+                    payload=payload,
+                )
+            if not existing.data:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Burn outcome is unresolved; do not retry with a new key",
+                )
+        return ResgateResponse(
+            id=reservation.resource_id,
+            status="Confirmado",
+            tx_hash=reservation.tx_hash,
+            quantidade=reservation.quantity,
+            instalacao_coelba=reservation.installation or payload.instalacao_coelba,
+            created_at=reservation.created_at,
+        )
+
     # 1. Idempotency replay check, BEFORE any side effect (balance check,
     # profile update, burning, persistence) - same rationale as
     # routers/descartes.py: a real Solana tx_hash is not deterministic per
     # idempotency_key, so a prior request can only be found by direct lookup.
     existing = (
-        supabase.table("transacoes_tokens").select("*").eq("idempotency_key", idempotency_key).execute()
+        supabase.table("transacoes_tokens")
+        .select("*")
+        .eq("idempotency_key", idempotency_key)
+        .execute()
     )
     if existing.data:
         transacao = existing.data[0]
+        validate_transaction_replay(
+            transacao,
+            user_id=user_id,
+            operation="BURN",
+            quantity=payload.quantidade,
+        )
+        reserve(
+            supabase,
+            key=idempotency_key,
+            user_id=user_id,
+            operation="BURN",
+            payload_hash=payload_hash,
+        )
+        complete(
+            supabase,
+            key=idempotency_key,
+            tx_hash=transacao["tx_hash"],
+            resource_id=transacao["id"],
+            quantity=transacao["quantidade"],
+            installation=payload.instalacao_coelba,
+        )
         return ResgateResponse(
             id=transacao["id"],
             status="Confirmado",
@@ -107,6 +321,23 @@ def create_resgate(
     user_row = user_result.data[0]
     wallet_address = user_row["wallet_address"]
 
+    reservation = reserve(
+        supabase,
+        key=idempotency_key,
+        user_id=user_id,
+        operation="BURN",
+        payload_hash=payload_hash,
+    )
+    if reservation.status == "completed":
+        return ResgateResponse(
+            id=reservation.resource_id,
+            status="Confirmado",
+            tx_hash=reservation.tx_hash,
+            quantidade=reservation.quantity,
+            instalacao_coelba=reservation.installation or payload.instalacao_coelba,
+            created_at=reservation.created_at,
+        )
+
     # 5. Single-screen UX: this endpoint accepts instalacao_coelba directly
     # instead of requiring a prior PATCH /users/me call. Only written when
     # it differs, to avoid a no-op update on every redemption.
@@ -115,44 +346,21 @@ def create_resgate(
             "id", user_id
         ).execute()
 
-    # 6. Burn. Not reached on replay (see step 1) - a retry never spends a
-    # second real transaction.
-    tx_hash = blockchain.burn_tokens(wallet_address, payload.quantidade, idempotency_key)
-
-    # 7. Record the BURN transaction. Step 1 and this insert race on
-    # concurrent requests sharing the same Idempotency-Key; a 23505 unique
-    # violation here means the other request won that race - replay its
-    # result instead of double-recording the burn.
-    try:
-        transacao_result = (
-            supabase.table("transacoes_tokens")
-            .insert(
-                {
-                    "user_id": user_id,
-                    "tipo": "BURN",
-                    "quantidade": payload.quantidade,
-                    "tx_hash": tx_hash,
-                    "idempotency_key": idempotency_key,
-                }
-            )
-            .execute()
-        )
-        transacao = transacao_result.data[0]
-    except APIError as exc:
-        if exc.code != _UNIQUE_VIOLATION:
-            raise
-        existing = (
-            supabase.table("transacoes_tokens").select("*").eq("idempotency_key", idempotency_key).execute()
-        )
-        if not existing.data:
-            raise
-        transacao = existing.data[0]
-
-    return ResgateResponse(
-        id=transacao["id"],
-        status="Confirmado",
-        tx_hash=transacao["tx_hash"],
-        quantidade=transacao["quantidade"],
-        instalacao_coelba=payload.instalacao_coelba,
-        created_at=transacao["created_at"],
+    prepared = blockchain.prepare_burn_transaction(
+        wallet_address, payload.quantidade, idempotency_key
+    )
+    save_prepared(
+        supabase,
+        key=idempotency_key,
+        signature=prepared.signature,
+        serialized_transaction=prepared.serialized_transaction,
+        last_valid_block_height=prepared.last_valid_block_height,
+    )
+    return _submit_and_record_burn(
+        supabase=supabase,
+        blockchain=blockchain,
+        prepared=prepared,
+        idempotency_key=idempotency_key,
+        user_id=user_id,
+        payload=payload,
     )
