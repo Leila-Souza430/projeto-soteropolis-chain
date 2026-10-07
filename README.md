@@ -13,6 +13,7 @@ O Soterópolis Chain transforma o descarte correto de material reciclável em de
 - [Arquitetura e stack tecnológica](#arquitetura-e-stack-tecnológica)
 - [Estrutura do repositório](#estrutura-do-repositório)
 - [Status do projeto](#status-do-projeto)
+- [Guia de continuidade](#guia-de-continuidade)
 - [Como rodar localmente](#como-rodar-localmente)
 - [Segurança](#segurança)
 - [Testes](#testes)
@@ -84,6 +85,21 @@ O repositório reúne o app Flutter, o backend e o programa Solana. O projeto ai
 4. Depois de validar a carteira, retomar o login por link ou escolher um fluxo apropriado. Considerar limites do plano gratuito e varredura/rastreamento de links como hipóteses, não como causa confirmada.
 5. Configurar SMTP próprio somente se houver um provedor controlado pela responsável pelo projeto; não é necessário ativar os avisos de segurança para login.
 6. Revisar configuração e migrações Supabase/backend e executar os testes integrados novamente antes de apresentar o fluxo como pronto.
+
+### Guia de continuidade
+
+Para continuar exatamente deste ponto em outro computador ou com outra IA,
+clone o branch de trabalho (não o branch padrão `main`):
+
+```bash
+git clone --branch agents/projeto-analise-e-corrigindo-erros --single-branch https://github.com/Leila-Souza430/projeto-soteropolis-chain.git
+```
+
+Leia primeiro [`CONTINUIDADE_AUTENTICACAO.md`](./CONTINUIDADE_AUTENTICACAO.md).
+Esse guia registra as evidências, as alterações feitas, o problema pendente e
+uma ordem segura para retomar. O histórico do branch contém o código atual;
+as configurações locais e credenciais não são incluídas e precisam ser
+recriadas localmente pela responsável.
 
 ## Como rodar localmente
 
