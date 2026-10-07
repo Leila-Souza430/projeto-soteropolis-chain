@@ -23,9 +23,9 @@ once the corresponding backend/dashboard setup exists.
 | `API_BASE_URL` | recommended | `http://10.0.2.2:8000` | soteropolis-backend's base URL. The default only works for an Android emulator talking to a backend running on the same machine (`10.0.2.2` is the emulator's alias for host localhost) - override for a physical device or a deployed backend. |
 | `SUPABASE_URL` | yes | *(empty)* | Same value as `SUPABASE_URL` in `soteropolis-backend/.env`. |
 | `SUPABASE_ANON_KEY` | yes | *(empty)* | Supabase project's anon/public key (NOT the service role key - this app only ever uses the citizen's own session, never an elevated one). |
-| `WEB3AUTH_CLIENT_ID` | yes | *(empty)* | From the Web3Auth dashboard (dashboard.web3auth.io) project - not created yet as of this build. |
+| `WEB3AUTH_CLIENT_ID` | yes | *(empty)* | Public client ID of the existing MetaMask Embedded Wallets project. Never use its Client Secret in the mobile app. |
 | `WEB3AUTH_VERIFIER` | yes | `soteropolis-supabase-jwt` | The dashboard's Custom Authentication connection id (`AuthConnectionConfig.authConnectionId` - older Web3Auth docs call this a "verifier"). Must be created in the dashboard, configured to verify Supabase's JWT (issuer, JWKS/audience per Supabase's own asymmetric signing key setup). |
-| `WEB3AUTH_VERIFIER_CLIENT_ID` | yes | *(empty)* | `AuthConnectionConfig.clientId` for that same connection. The Web3Auth dashboard assigns this when the connection is created; confirm its exact expected value there - the SDK requires a non-null value even for a JWKS-only custom connection. |
+| `WEB3AUTH_VERIFIER_CLIENT_ID` | yes | *(empty)* | `AuthConnectionConfig.clientId` for the Supabase custom connection. The SDK requires a non-null value even for a JWKS-only connection; the correct value is still being confirmed with MetaMask. A local experimental value does not establish that the configuration is valid. |
 
 ### Primary: `--dart-define-from-file`
 
@@ -81,11 +81,23 @@ change together.
 
 ## What's still pending outside this app
 
-These are pre-existing gaps in other parts of the project (backend/database),
-not something this app's code is missing:
+These items remain unverified or incomplete outside this app:
 
-- The Web3Auth dashboard project + Custom Authentication connection referenced
-  above don't exist yet.
+- The current app build temporarily uses Supabase email/password for testing,
+  so it does not send a login email. The Supabase sign-in appears to succeed,
+  but the app then displays a wallet-configuration error. Diagnose the
+  MetaMask/Web3Auth and backend steps independently; success of Supabase auth
+  does not prove the wallet flow works.
+- The MetaMask Embedded Wallets project and Supabase Custom Authentication
+  connection exist. The connection is configured with the Supabase JWKS
+  endpoint, issuer, and audience; a successful Web3Auth authentication has
+  not yet been confirmed. The SDK-required custom connection `clientId` is
+  still being verified.
+- Supabase's default email template preview shows a magic link, and custom
+  SMTP is disabled. The email link test returned an invalid/expired-token
+  error. Free-plan sending limits are a possible constraint, not a confirmed
+  explanation for that verification error. Do not enable custom SMTP unless
+  a provider controlled by the project owner is available.
 - Three migrations under `../migrations/` need to be pasted into the Supabase
   SQL Editor manually (no DDL access from this environment): the
   `on_auth_user_created` signup trigger, the `get_saldo_gt()` RPC, and the
@@ -123,3 +135,20 @@ flutter run --dart-define-from-file=dart_define.local.json # see table above
 ```
 
 No automated tests yet (explicitly deferred to a later phase).
+
+## Authentication test status
+
+The Android debug APK was built and installed on a physical device. Current
+diagnostic sequence:
+
+1. Supabase email-link verification has returned
+   `Email link is invalid or has expired`; the reason is not yet established.
+2. The app's temporary email/password flow reaches the wallet setup step but
+   fails to configure the Carteira Digital. Check the app's sanitized local
+   diagnostics and confirm the backend is running before retrying.
+3. Validate Web3Auth custom authentication and wallet derivation before
+   considering the sign-in flow complete.
+
+Never commit `dart_define.local.json`, passwords, access tokens, Supabase
+service-role keys, or the MetaMask Client Secret. Do not include full callback
+URIs or query/fragment parameters in shared logs.

@@ -72,15 +72,17 @@ Future<void> main() async {
   );
   final authService = AuthService(apiClient);
 
-  // Diagnostic only: confirms whether the OS delivers the magic-link deep
-  // link to the app at all, independent of whether supabase_flutter's own
+  // Diagnostic only: confirms whether the OS delivers a legacy magic-link
+  // deep link to the app, independent of whether supabase_flutter's own
   // detectSessionInUriPredicate (above) accepts it. AppLinks() is a
   // singleton and uriLinkStream a broadcast stream (confirmed against the
   // installed app_links 7.2.1 source), so this listener is purely additive
   // - it cannot steal or interfere with supabase_flutter's own internal
   // subscription on the same stream.
   AppLinks().uriLinkStream.listen(
-    (uri) => debugPrint('AppLinks uriLinkStream received: $uri'),
+    (uri) => debugPrint(
+      'AppLinks callback received: ${uri.scheme}://${uri.host}${uri.path}',
+    ),
     onError: (Object error, StackTrace stackTrace) =>
         debugPrint('AppLinks uriLinkStream error: $error'),
   );
@@ -116,21 +118,17 @@ Future<void> main() async {
     );
   }
 
-  // Email magic-link login completes asynchronously and has no screen
-  // reliably mounted to await it (deep link can resolve after the app was
-  // backgrounded, or relaunch it cold) - so, unlike phone/SMS's
-  // verifyOtpAndLinkWallet, it's driven from here rather than from
-  // login_screen.dart. Once supabase_flutter's own deep-link handling
-  // (armed by detectSessionInUri, on by default) exchanges the incoming
-  // soteropolisapp://supabase-auth-callback link for a session, this fires
-  // and completes the same wallet-link chain phone/SMS runs inline.
-  //
-  // linkWalletForActiveSession is safe to call here even though phone/SMS
-  // logins also raise signedIn (verifyOTP() triggers it too): it's a no-op
-  // for a session verifyOtpAndLinkWallet already linked, so this only ever
-  // does real work for a session nothing else has handled - which is also
-  // why navigation below is gated on didLink (and hasNavigatedHome)
-  // rather than unconditional.
+  void navigateToHome() {
+    if (hasNavigatedHome) return;
+    hasNavigatedHome = true;
+    rootNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+      '/home',
+      (route) => false,
+    );
+  }
+
+  // This listener completes wallet linking for Supabase sessions, including
+  // sessions created from the email magic-link callback.
   Supabase.instance.client.auth.onAuthStateChange.listen(
     (data) async {
       debugPrint('onAuthStateChange event: ${data.event}');
@@ -142,25 +140,13 @@ Future<void> main() async {
       try {
         final didLink = await authService.linkWalletForActiveSession();
         debugPrint('linkWalletForActiveSession didLink: $didLink');
-        if (didLink && !hasNavigatedHome) {
-          hasNavigatedHome = true;
-          rootNavigatorKey.currentState?.pushNamedAndRemoveUntil(
-            '/home',
-            (route) => false,
-          );
-        }
+        if (didLink) navigateToHome();
       } on WalletDerivationException catch (e) {
-        // login_screen.dart has no listener of its own to hand this to
-        // (see its comment on the awaiting-email-link step) - this is a
-        // rare failure (Web3Auth misconfigured/unreachable). Previously
-        // this was only logged, leaving the citizen stuck on a frozen
-        // "check your email" screen with no feedback (and was the actual
-        // source of the repeated _elements.contains(element) crash) - now
-        // it sends them back to a fresh login screen with a plain-language
-        // error instead. e.message isn't shown (may carry Web3Auth
-        // internals); the fixed, no-jargon message is used instead.
+        // A Web3Auth failure sends the citizen back to a fresh login screen
+        // with a plain-language error. e.message isn't shown (may carry
+        // Web3Auth internals).
         debugPrint(
-          'Falha ao vincular carteira apos login por link magico: ${e.message}',
+          'Falha ao vincular carteira apos autenticacao: ${e.message}',
         );
         navigateToLoginWithError();
       } catch (e) {
@@ -195,7 +181,12 @@ Future<void> main() async {
   // signedIn event - see hasNavigatedHome's declaration comment.
   hasNavigatedHome = isLoggedIn;
 
-  runApp(SoteropolisApp(authService: authService, startLoggedIn: isLoggedIn));
+  runApp(
+    SoteropolisApp(
+      authService: authService,
+      startLoggedIn: isLoggedIn,
+    ),
+  );
 }
 
 class SoteropolisApp extends StatelessWidget {
@@ -226,8 +217,6 @@ class SoteropolisApp extends StatelessWidget {
       routes: {
         '/login': (context) => LoginScreen(
           authService: authService,
-          onLoggedIn: () => rootNavigatorKey.currentState
-              ?.pushNamedAndRemoveUntil('/home', (route) => false),
           // Set by navigateToLoginWithError's arguments above when routing
           // here after a post-login failure; null for every other
           // navigation to /login (initial route, ApiClient's 401 handler).

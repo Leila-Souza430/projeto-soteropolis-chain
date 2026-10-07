@@ -105,8 +105,8 @@ class AuthService {
     }
   }
 
-  /// Step 1 of login: Supabase sends the actual OTP. Exactly one of [email]
-  /// or [phone] must be set.
+  /// Starts Supabase email magic-link or SMS OTP login. Exactly one of
+  /// [email] or [phone] must be set.
   Future<void> sendOtp({String? email, String? phone}) {
     assert(
       (email == null) != (phone == null),
@@ -115,23 +115,31 @@ class AuthService {
     return _supabase.auth.signInWithOtp(
       email: email,
       phone: phone,
-      // Email logs in via magic link now, not a typed code: this is where
-      // the link in that email sends the citizen back into the app (must
-      // match a third AndroidManifest.xml intent-filter and a Supabase
-      // dashboard Redirect URL entry - see Env.supabaseAuthRedirectUrl).
-      // No redirect concept for SMS, so left null there.
-      emailRedirectTo: email != null ? Env.supabaseAuthRedirectUrl : null,
+      emailRedirectTo: email == null ? null : Env.supabaseAuthRedirectUrl,
     );
   }
 
-  /// Step 2: verifies the OTP the citizen typed in, then immediately chains
-  /// into the Web3Auth exchange and wallet-address link (SPEC flow steps
-  /// 3-7) so the caller gets one clean pass/fail result. Exactly one of
-  /// [email]/[phone] must match what was passed to [sendOtp].
-  ///
-  /// Throws [InvalidOtpException] if the code itself is wrong, or
-  /// [WalletDerivationException] if the OTP was fine but the Web3Auth
-  /// hand-off failed.
+  /// Signs in an existing test user without sending an email, then links the
+  /// active Supabase session to its Web3Auth wallet.
+  Future<void> signInWithPasswordAndLinkWallet({
+    required String email,
+    required String password,
+  }) async {
+    final response = await _supabase.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+    if (response.session == null) {
+      throw const WalletDerivationException(
+        'Não foi possível iniciar uma sessão. Confira a conta de teste.',
+      );
+    }
+    await linkWalletForActiveSession();
+  }
+
+  /// Verifies an SMS OTP typed by the citizen and chains into the Web3Auth
+  /// exchange and wallet-address link. Email login is verified by the
+  /// Supabase magic-link callback instead.
   Future<void> verifyOtpAndLinkWallet({
     String? email,
     String? phone,
@@ -166,13 +174,12 @@ class AuthService {
   /// 3-7) - the second half of login, shared by two call sites:
   ///
   /// - [verifyOtpAndLinkWallet] above calls this synchronously right after
-  ///   phone/SMS's verifyOTP() resolves.
-  /// - main.dart's `onAuthStateChange` listener calls this for email's
-  ///   magic-link login, which has no synchronous return value to hang the
-  ///   wallet link off of - the session lands asynchronously whenever the
-  ///   citizen taps the link and the app picks up the deep link.
+  ///   email/SMS's verifyOTP() resolves.
+  /// - main.dart's `onAuthStateChange` listener also calls this when any
+  ///   Supabase sign-in event lands asynchronously, including a legacy
+  ///   email magic link opened from a previously sent message.
   ///
-  /// Both listen to the same Supabase client, so a single phone/SMS sign-in
+  /// Both listen to the same Supabase client, so a single OTP sign-in
   /// can reach both call sites for the *same* session (verifyOTP() itself
   /// also fires a signedIn event). Idempotent per access token so that
   /// race can't trigger a second Web3Auth exchange - which would pop a

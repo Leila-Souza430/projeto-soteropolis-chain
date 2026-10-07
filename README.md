@@ -31,7 +31,7 @@ Moradores de Salvador que se dispõem a reciclar não recebem nenhum retorno tan
 
 ## Como funciona
 
-1. Cidadão faz login por e-mail (link mágico, sem senha). Uma carteira Solana é criada automaticamente em segundo plano.
+1. O cidadão autentica no Supabase. O app está temporariamente em modo de teste por e-mail e senha; a criação/vinculação da carteira Solana acontece em seguida e ainda está em validação.
 2. No Ecoponto, tira uma foto do material reciclável em tempo real, com GPS anexado automaticamente.
 3. O backend valida a distância até o Ecoponto (fórmula de Haversine) e rejeita tentativas fora do raio permitido — mantendo o registro para auditoria antifraude.
 4. Descartes validados emitem Green Tokens (GT) via smart contract na Solana, de forma idempotente (sem risco de duplicação em falha de rede).
@@ -63,13 +63,27 @@ Moradores de Salvador que se dispõem a reciclar não recebem nenhum retorno tan
 
 ## Status do projeto
 
-MVP completo, construído e testado em 5 fases sequenciais — cada uma validada contra ambiente real antes de avançar para a próxima:
+O repositório reúne o app Flutter, o backend e o programa Solana. O projeto ainda precisa validar o caminho de autenticação e carteira no app de ponta a ponta; o estado abaixo separa o que foi observado do que ainda falta confirmar.
 
-- [x] **Fase 1 — Fundação de dados**: schema no Supabase com Row Level Security (RLS).
-- [x] **Fase 2 — Backend**: API FastAPI com geofencing, idempotência e auditoria, testada contra Supabase real.
-- [x] **Fase 3 — Blockchain**: contrato Anchor implantado na devnet da Solana, com mint/burn reais e auditoria de segurança.
-- [x] **Fase 4 — App mobile**: aplicativo Flutter compilado e testado em dispositivo Android físico, com autenticação real.
-- [x] **Fase 5 — Integração e testes**: 11 testes E2E automatizados passando contra Supabase e devnet reais, sem simulações.
+### Progresso recente de autenticação (7 de outubro de 2026)
+
+- O app Flutter foi compilado em modo debug, instalado e aberto em um Android físico.
+- O login por link de e-mail foi testado, mas o Supabase registrou `/verify` com `403: Email link is invalid or has expired`. A conta de teste criada por convite confirmou o e-mail e o link de convite redirecionou para `localhost`, que não está rodando no celular.
+- O callback `soteropolisapp://supabase-auth-callback` está na lista de Redirect URLs do Supabase e no intent filter do Android. Um teste local confirmou o encaminhamento desse esquema ao app; isso não comprovou a aceitação de um link real.
+- A prévia do template padrão “Magic link or OTP” mostra um link. O SMTP personalizado permanece desligado. O plano gratuito pode impor limites de envio, mas os dados vistos não provam que esse seja o motivo do erro `/verify`.
+- Para testar sem depender de e-mail, o app foi alterado temporariamente para aceitar e-mail e senha. A mensagem “Não foi possível configurar sua Carteira Digital” indica que o app avançou para a etapa de carteira após o login Supabase; essa etapa ainda falha. Não foi confirmado se a causa está no MetaMask/Web3Auth, na configuração da conexão ou no backend.
+- A conexão Custom Authentication do MetaMask foi configurada para validar o JWT Supabase por JWKS, issuer e audience. Ainda não há uma autenticação Web3Auth bem-sucedida confirmada; o valor `clientId` exigido pelo SDK continua sendo um ponto a validar.
+- O build de debug passou. `flutter analyze` não encontrou erros nas alterações de login; apontou somente um aviso informativo preexistente em `lib/services/api_client.dart`.
+- SMTP, dados do projeto hospedado e contas de usuário não foram alterados por essas mudanças de código. Credenciais, senhas, tokens e o arquivo local `soteropolis-app/dart_define.local.json` não devem ser commitados.
+
+### Próximos passos
+
+1. Investigar o erro da Carteira Digital nos logs do app, distinguindo a resposta do MetaMask/Web3Auth da chamada ao backend; manter segredo, senha, token e URI completa fora dos logs compartilhados.
+2. Confirmar que o backend local está rodando e configurado antes de testar a etapa de vínculo da carteira.
+3. Resolver e testar a configuração Custom Authentication do MetaMask, principalmente o `clientId` exigido pelo SDK, sem usar o Client Secret no app.
+4. Depois de validar a carteira, retomar o login por link ou escolher um fluxo apropriado. Considerar limites do plano gratuito e varredura/rastreamento de links como hipóteses, não como causa confirmada.
+5. Configurar SMTP próprio somente se houver um provedor controlado pela responsável pelo projeto; não é necessário ativar os avisos de segurança para login.
+6. Revisar configuração e migrações Supabase/backend e executar os testes integrados novamente antes de apresentar o fluxo como pronto.
 
 ## Como rodar localmente
 
@@ -109,7 +123,7 @@ anchor test
 
 ## Testes
 
-Suíte de 11 testes automatizados de ponta a ponta (pytest), cobrindo o fluxo completo — captura de descarte → validação de GPS → emissão de token → simulação de resgate — rodando contra o Supabase e a devnet da Solana **reais**, sem mocks escondendo eventuais bugs.
+O repositório contém testes automatizados para o backend e para o programa on-chain. O fluxo atual de autenticação Supabase → MetaMask/Web3Auth → backend ainda não foi confirmado de ponta a ponta; execute novamente as suítes relevantes antes de considerar o MVP validado.
 
 ## Roadmap
 

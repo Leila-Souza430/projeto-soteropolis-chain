@@ -50,9 +50,7 @@ class Env {
   static const String web3authRedirectUrl =
       'soteropolisapp://com.soteropolis.soteropolis_app';
 
-  /// Email magic-link login callback (Supabase Auth). Passed as
-  /// `emailRedirectTo` to `signInWithOtp` - AuthService.sendOtp does this
-  /// for the email case only, since SMS has no redirect concept.
+  /// Email magic-link callback (Supabase Auth).
   ///
   /// Must exactly match the scheme and host attributes of the data element
   /// inside android/app/src/main/AndroidManifest.xml's third intent-filter,
