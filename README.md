@@ -72,19 +72,20 @@ O repositório reúne o app Flutter, o backend e o programa Solana. O projeto ai
 - O login por link de e-mail foi testado, mas o Supabase registrou `/verify` com `403: Email link is invalid or has expired`. A conta de teste criada por convite confirmou o e-mail e o link de convite redirecionou para `localhost`, que não está rodando no celular.
 - O callback `soteropolisapp://supabase-auth-callback` está na lista de Redirect URLs do Supabase e no intent filter do Android. Um teste local confirmou o encaminhamento desse esquema ao app; isso não comprovou a aceitação de um link real.
 - A prévia do template padrão “Magic link or OTP” mostra um link. O SMTP personalizado permanece desligado. O plano gratuito pode impor limites de envio, mas os dados vistos não provam que esse seja o motivo do erro `/verify`.
-- Para testar sem depender de e-mail, o app foi alterado temporariamente para aceitar e-mail e senha. A mensagem “Não foi possível configurar sua Carteira Digital” indica que o app avançou para a etapa de carteira após o login Supabase; essa etapa ainda falha. Não foi confirmado se a causa está no MetaMask/Web3Auth, na configuração da conexão ou no backend.
+- Para testar sem depender de e-mail, o app foi alterado temporariamente para aceitar e-mail e senha. Uma tentativa anterior chegou à mensagem “Não foi possível configurar sua Carteira Digital”, mas a tentativa mais recente foi recusada pelo Supabase com `invalid_credentials` (HTTP 400); essa última tentativa não chegou ao MetaMask.
 - A conexão Custom Authentication do MetaMask foi configurada para validar o JWT Supabase por JWKS, issuer e audience. O código agora usa o client ID público do projeto Embedded Wallets no `AuthConnectionConfig.clientId`, como no exemplo oficial Flutter de custom JWT. Ainda falta confirmar esse caminho em uma autenticação Web3Auth real.
 - O build de debug passou. `flutter analyze` não encontrou erros nas alterações de login; apontou somente um aviso informativo preexistente em `lib/services/api_client.dart`.
 - SMTP, dados do projeto hospedado e contas de usuário não foram alterados por essas mudanças de código. Credenciais, senhas, tokens e o arquivo local `soteropolis-app/dart_define.local.json` não devem ser commitados.
 
 ### Próximos passos
 
-1. Investigar o erro da Carteira Digital nos logs do app, distinguindo a resposta do MetaMask/Web3Auth da chamada ao backend; manter segredo, senha, token e URI completa fora dos logs compartilhados.
-2. Confirmar que o backend local está rodando e configurado antes de testar a etapa de vínculo da carteira.
-3. Resolver e testar a configuração Custom Authentication do MetaMask, principalmente o `clientId` exigido pelo SDK, sem usar o Client Secret no app.
-4. Depois de validar a carteira, retomar o login por link ou escolher um fluxo apropriado. Considerar limites do plano gratuito e varredura/rastreamento de links como hipóteses, não como causa confirmada.
-5. Configurar SMTP próprio somente se houver um provedor controlado pela responsável pelo projeto; não é necessário ativar os avisos de segurança para login.
-6. Revisar configuração e migrações Supabase/backend e executar os testes integrados novamente antes de apresentar o fluxo como pronto.
+1. Definir uma senha conhecida para uma conta de teste no Supabase. A conta criada por convite teve o e-mail confirmado, mas isso não comprova que a senha usada no app esteja correta; não apagar usuários existentes.
+2. Fazer uma tentativa com credenciais sabidamente corretas e confirmar primeiro que o Supabase aceitou o login.
+3. Se o Supabase aceitar, investigar a etapa MetaMask/Web3Auth e obter erro técnico sanitizado, separando-a da chamada ao backend.
+4. Configurar e iniciar o backend local antes de testar o vínculo final da carteira.
+5. Depois, retomar o login por link. Considerar limites do plano gratuito e varredura/rastreamento de links como hipóteses, não como causa confirmada.
+6. Configurar SMTP próprio somente se houver um provedor controlado pela responsável pelo projeto; não é necessário ativar os avisos de segurança para autenticação.
+7. Revisar configuração e migrações Supabase/backend e executar os testes integrados novamente antes de apresentar o fluxo como pronto.
 
 ### Guia de continuidade
 

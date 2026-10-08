@@ -81,10 +81,10 @@ change together.
 These items remain unverified or incomplete outside this app:
 
 - The current app build temporarily uses Supabase email/password for testing,
-  so it does not send a login email. The Supabase sign-in appears to succeed,
-  but the app then displays a wallet-configuration error. Diagnose the
-  MetaMask/Web3Auth and backend steps independently; success of Supabase auth
-  does not prove the wallet flow works.
+  so it does not send a login email. The latest login attempt was rejected by
+  Supabase with `invalid_credentials` (HTTP 400) and did not reach MetaMask.
+  An earlier attempt was reported to show a wallet-configuration error; keep
+  Supabase, MetaMask/Web3Auth, and backend outcomes distinct when retesting.
 - The MetaMask Embedded Wallets project and Supabase Custom Authentication
   connection exist. The connection is configured with the Supabase JWKS
   endpoint, issuer, and audience. The app now uses the Embedded Wallets
@@ -141,14 +141,13 @@ diagnostic sequence:
 
 1. Supabase email-link verification has returned
    `Email link is invalid or has expired`; the reason is not yet established.
-2. The app's temporary email/password flow reaches the wallet setup step but
-   fails to configure the Carteira Digital. Check the app's sanitized local
-   diagnostics. The MetaMask project client ID is now passed as
-   `AuthConnectionConfig.clientId` per the official custom-JWT Flutter
-   example. The backend must also be running before the subsequent wallet
-   address link can complete.
-3. Validate Web3Auth custom authentication and wallet derivation before
-   considering the sign-in flow complete.
+2. The most recent email/password attempt was rejected by Supabase with
+   `invalid_credentials` (HTTP 400), before reaching Web3Auth.
+3. Confirm/set a known password for a test user without deleting existing
+   users. Only after Supabase accepts the login, test Web3Auth custom
+   authentication and wallet derivation with the documented project client ID.
+4. The backend must be running before the subsequent wallet-address link can
+   complete.
 
 Never commit `dart_define.local.json`, passwords, access tokens, Supabase
 service-role keys, or the MetaMask Client Secret. Do not include full callback

@@ -37,10 +37,12 @@ Commit base deste guia: `932ea81` (`fix: enable password auth for testing`).
 - A conta de teste criada pela interface de convite aparece como confirmada,
   mas o convite redirecionou para `localhost`. “Confirmed at” e “Last signed
   in” não provam que foi criada uma senha.
-- Na tentativa posterior, a responsável usou uma conta com e-mail/senha e o
-  app mostrou “Não foi possível configurar sua Carteira Digital. Tente
-  novamente.” Isso indica que a falha percebida aconteceu na etapa de carteira,
-  depois do login Supabase. Não foi determinada a causa técnica exata.
+- Houve um relato anterior de “Não foi possível configurar sua Carteira
+  Digital”, mas a tentativa mais recente (21:26, horário local) foi registrada
+  pelo app como `AuthApiException`, HTTP 400, `invalid_credentials`,
+  `Invalid login credentials`. O Supabase recusou a autenticação por senha,
+  então essa tentativa não chegou ao MetaMask/Web3Auth. A senha não foi lida
+  nem registrada neste diagnóstico.
 - A ligação da carteira depende do MetaMask Embedded Wallets/Web3Auth e
   posteriormente do backend. A verificação local confirmou que a porta 8000
   não tem servidor escutando e que `soteropolis-backend/.env` não existe.
@@ -60,7 +62,9 @@ Commit base deste guia: `932ea81` (`fix: enable password auth for testing`).
 
 - O app tem temporariamente um formulário de e-mail e senha para permitir
   testes sem envio de e-mail. A senha é mascarada na UI e não deve ser
-  solicitada nem incluída em logs/documentação.
+  solicitada nem incluída em logs/documentação. A tentativa mais recente foi
+  recusada pelo Supabase (`invalid_credentials`); autenticação por senha
+  ainda não está comprovada.
 - `AuthService.signInWithPasswordAndLinkWallet` autentica no Supabase e chama
   o vínculo/derivação da carteira em seguida.
 - O listener de `onAuthStateChange` também tenta completar esse vínculo e
@@ -85,27 +89,29 @@ Commit base deste guia: `932ea81` (`fix: enable password auth for testing`).
 
 1. Não pedir novos links de e-mail por enquanto e não ativar SMTP sem um
    provedor controlado pela dona do projeto.
-2. Garantir que a conta de teste tenha senha de fato. Se foi criada por
-   convite, confirmar no Supabase como definir/redefinir a senha sem apagar
-   contas existentes. Não reutilizar o fluxo “invite” como prova de criação
-   de senha.
-3. Com consentimento da responsável, reproduzir uma única vez o login no app
-   e coletar logs locais sanitizados. Nunca compartilhar senha, JWT, refresh
-   token, código de callback ou URI completa.
-4. Antes de repetir, conferir se o backend FastAPI está rodando, se a URL de
+2. Definir/redefinir uma senha conhecida para a conta de teste. A conta criada
+   por convite foi confirmada, mas isso não prova que a senha usada no app seja
+   válida. Não apagar usuários existentes nem reutilizar o link de convite como
+   prova de criação de senha.
+3. Fazer uma única tentativa com credenciais sabidamente corretas e confirmar
+   primeiro que o Supabase aceitou o login.
+4. Com consentimento da responsável, coletar logs locais sanitizados. Nunca
+   compartilhar senha, JWT, refresh token, código de callback ou URI completa.
+5. Antes de testar o vínculo final, conferir se o backend FastAPI está rodando,
+   se a URL de
    `API_BASE_URL` alcança o backend a partir do Android físico e se o `.env`
    do backend está configurado. Na última verificação, o arquivo `.env` não
    existia e a porta 8000 estava sem listener; o valor local de API aponta
    para loopback, portanto `adb reverse` não substitui o servidor.
-5. Distinguir nos logs: retorno do `Web3AuthFlutter.connectTo`, falha de
+6. Distinguir nos logs: retorno do `Web3AuthFlutter.connectTo`, falha de
    derivação de chave, erro HTTP do backend e ausência de serviço. Melhorar a
    mensagem de erro para orientar a pessoa sem revelar detalhes sensíveis.
-6. Retestar Web3Auth com o ajuste do project client ID. Se falhar, obter
+7. Retestar Web3Auth com o ajuste do project client ID. Se falhar, obter
    `connectTo` e código de erro sanitizados e pedir à MetaMask confirmação
    sobre o comportamento do SDK v7. Nunca usar Client Secret no app.
-7. Só então retestar Supabase → Web3Auth → carteira → backend como etapas
+8. Só então retestar Supabase → Web3Auth → carteira → backend como etapas
    separadas e documentar o resultado.
-8. Retomar magic link/OTP depois. Tratar limite do plano gratuito e scanner/
+9. Retomar magic link/OTP depois. Tratar limite do plano gratuito e scanner/
    rastreador de links como hipóteses a testar, não como causa já provada.
 
 ## Dados deliberadamente fora do Git
