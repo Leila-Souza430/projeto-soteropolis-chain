@@ -25,7 +25,6 @@ once the corresponding backend/dashboard setup exists.
 | `SUPABASE_ANON_KEY` | yes | *(empty)* | Supabase project's anon/public key (NOT the service role key - this app only ever uses the citizen's own session, never an elevated one). |
 | `WEB3AUTH_CLIENT_ID` | yes | *(empty)* | Public client ID of the existing MetaMask Embedded Wallets project. Never use its Client Secret in the mobile app. |
 | `WEB3AUTH_VERIFIER` | yes | `soteropolis-supabase-jwt` | The dashboard's Custom Authentication connection id (`AuthConnectionConfig.authConnectionId` - older Web3Auth docs call this a "verifier"). Must be created in the dashboard, configured to verify Supabase's JWT (issuer, JWKS/audience per Supabase's own asymmetric signing key setup). |
-| `WEB3AUTH_VERIFIER_CLIENT_ID` | yes | *(empty)* | `AuthConnectionConfig.clientId` for the Supabase custom connection. The SDK requires a non-null value even for a JWKS-only connection; the correct value is still being confirmed with MetaMask. A local experimental value does not establish that the configuration is valid. |
 
 ### Primary: `--dart-define-from-file`
 
@@ -38,8 +37,7 @@ README) with all six keys from the table above:
   "SUPABASE_URL": "https://xxxxx.supabase.co",
   "SUPABASE_ANON_KEY": "sb_publishable_...",
   "WEB3AUTH_CLIENT_ID": "BxYz...",
-  "WEB3AUTH_VERIFIER": "soteropolis-supabase-jwt",
-  "WEB3AUTH_VERIFIER_CLIENT_ID": "..."
+  "WEB3AUTH_VERIFIER": "soteropolis-supabase-jwt"
 }
 ```
 
@@ -65,8 +63,7 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000 \
   --dart-define=SUPABASE_URL=https://xxxxx.supabase.co \
   --dart-define=SUPABASE_ANON_KEY=eyJ... \
   --dart-define=WEB3AUTH_CLIENT_ID=BxYz... \
-  --dart-define=WEB3AUTH_VERIFIER=soteropolis-supabase-jwt \
-  --dart-define=WEB3AUTH_VERIFIER_CLIENT_ID=...
+  --dart-define=WEB3AUTH_VERIFIER=soteropolis-supabase-jwt
 ```
 
 For a release build, use `flutter build apk` with the same flags - see
@@ -90,9 +87,10 @@ These items remain unverified or incomplete outside this app:
   does not prove the wallet flow works.
 - The MetaMask Embedded Wallets project and Supabase Custom Authentication
   connection exist. The connection is configured with the Supabase JWKS
-  endpoint, issuer, and audience; a successful Web3Auth authentication has
-  not yet been confirmed. The SDK-required custom connection `clientId` is
-  still being verified.
+  endpoint, issuer, and audience. The app now uses the Embedded Wallets
+  project client ID for the required custom-JWT `AuthConnectionConfig.clientId`,
+  following MetaMask's Flutter documentation; this adjustment still needs a
+  live login test.
 - Supabase's default email template preview shows a magic link, and custom
   SMTP is disabled. The email link test returned an invalid/expired-token
   error. Free-plan sending limits are a possible constraint, not a confirmed
@@ -145,7 +143,10 @@ diagnostic sequence:
    `Email link is invalid or has expired`; the reason is not yet established.
 2. The app's temporary email/password flow reaches the wallet setup step but
    fails to configure the Carteira Digital. Check the app's sanitized local
-   diagnostics and confirm the backend is running before retrying.
+   diagnostics. The MetaMask project client ID is now passed as
+   `AuthConnectionConfig.clientId` per the official custom-JWT Flutter
+   example. The backend must also be running before the subsequent wallet
+   address link can complete.
 3. Validate Web3Auth custom authentication and wallet derivation before
    considering the sign-in flow complete.
 

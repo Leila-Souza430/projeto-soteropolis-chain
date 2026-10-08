@@ -33,15 +33,6 @@ class Env {
     defaultValue: 'soteropolis-supabase-jwt',
   );
 
-  /// AuthConnectionConfig.clientId for that same connection. The Web3Auth
-  /// dashboard assigns this when the Custom Authentication connection is
-  /// created - confirm its exact meaning there when wiring up real values.
-  /// The SDK requires *some* non-null value for this field even for a
-  /// JWKS-only custom connection.
-  static const String web3authVerifierClientId = String.fromEnvironment(
-    'WEB3AUTH_VERIFIER_CLIENT_ID',
-  );
-
   /// Must exactly match the scheme and host attributes of the data element
   /// inside android/app/src/main/AndroidManifest.xml's second intent-filter.
   /// Not a dart-define: it's derived from the app's own applicationId, not

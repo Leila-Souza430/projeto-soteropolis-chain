@@ -41,14 +41,17 @@ Commit base deste guia: `932ea81` (`fix: enable password auth for testing`).
   app mostrou “Não foi possível configurar sua Carteira Digital. Tente
   novamente.” Isso indica que a falha percebida aconteceu na etapa de carteira,
   depois do login Supabase. Não foi determinada a causa técnica exata.
-- A ligação da carteira pode depender do MetaMask Embedded Wallets/Web3Auth e
-  do backend. O backend local estava parado na última verificação; confirmar
-  sua disponibilidade e configuração antes de atribuir a falha somente ao
-  MetaMask.
+- A ligação da carteira depende do MetaMask Embedded Wallets/Web3Auth e
+  posteriormente do backend. A verificação local confirmou que a porta 8000
+  não tem servidor escutando e que `soteropolis-backend/.env` não existe.
+  `adb reverse` encaminha a porta USB, mas não inicia o backend.
 - A conexão Supabase Custom Authentication no painel MetaMask foi configurada
   com JWKS, issuer e audience. A autenticação Web3Auth ainda não foi validada
-  com sucesso. O valor de `AuthConnectionConfig.clientId` permanece
-  experimental/não confirmado pela MetaMask.
+  com sucesso.
+- A documentação oficial Flutter de custom JWT usa o Embedded Wallets project
+  client ID em `AuthConnectionConfig.clientId`. O branch foi atualizado para
+  seguir esse exemplo em vez do valor local experimental anterior. O ajuste
+  foi compilado e instalado; uma tentativa real com esse ajuste está pendente.
 - A prévia do Supabase, após o callback sintético, registrou “No code detected
   in query parameters”. Isso era esperado para o teste sem código; não se deve
   interpretar como uma tentativa real de login.
@@ -91,12 +94,15 @@ Commit base deste guia: `932ea81` (`fix: enable password auth for testing`).
    token, código de callback ou URI completa.
 4. Antes de repetir, conferir se o backend FastAPI está rodando, se a URL de
    `API_BASE_URL` alcança o backend a partir do Android físico e se o `.env`
-   do backend está configurado.
+   do backend está configurado. Na última verificação, o arquivo `.env` não
+   existia e a porta 8000 estava sem listener; o valor local de API aponta
+   para loopback, portanto `adb reverse` não substitui o servidor.
 5. Distinguir nos logs: retorno do `Web3AuthFlutter.connectTo`, falha de
    derivação de chave, erro HTTP do backend e ausência de serviço. Melhorar a
    mensagem de erro para orientar a pessoa sem revelar detalhes sensíveis.
-6. Confirmar com MetaMask o significado/valor de `AuthConnectionConfig.clientId`
-   para a conexão Supabase JWKS. Nunca usar Client Secret no app.
+6. Retestar Web3Auth com o ajuste do project client ID. Se falhar, obter
+   `connectTo` e código de erro sanitizados e pedir à MetaMask confirmação
+   sobre o comportamento do SDK v7. Nunca usar Client Secret no app.
 7. Só então retestar Supabase → Web3Auth → carteira → backend como etapas
    separadas e documentar o resultado.
 8. Retomar magic link/OTP depois. Tratar limite do plano gratuito e scanner/

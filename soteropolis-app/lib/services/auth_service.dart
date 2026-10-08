@@ -80,7 +80,9 @@ class AuthService {
           AuthConnectionConfig(
             authConnection: AuthConnection.custom,
             authConnectionId: Env.web3authVerifier,
-            clientId: Env.web3authVerifierClientId,
+            // MetaMask's Flutter custom-JWT example uses the Embedded
+            // Wallets project client ID for this required field.
+            clientId: Env.web3authClientId,
           ),
         ],
       ),
